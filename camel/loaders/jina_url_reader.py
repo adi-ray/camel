@@ -13,6 +13,7 @@
 # ========= Copyright 2023-2024 @ CAMEL-AI.org. All Rights Reserved. =========
 
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 from warnings import warn
 
@@ -81,26 +82,41 @@ class JinaURLLoader(BaseLoader):
         self._headers = {k: v for k, v in raw_headers.items() if v}
         self.timeout = timeout
 
-    def _load_single(  # type: ignore[override]
+    def _load_single(
         self,
-        source: str,
+        source: Union[str, Path],
         **kwargs: Any,
-    ) -> Dict[str, str]:
+    ) -> Dict[str, Any]:
         r"""Load content from a single URL.
 
         Args:
-            source: The URL to load content from.
-            (default: :obj:`None`)
-            **kwargs: Additional arguments to pass to the request.
-            (default: :obj:`None`)
+            source (Union[str, Path]): The URL to load content from. While Path
+                objects are accepted for compatibility with BaseLoader, only
+                string URLs starting with 'http://' or 'https://' are
+                supported.
+            **kwargs (Any): Additional arguments to pass to the request.
 
         Returns:
-            The content of the URL as a string.
+            Dict[str, Any]: A dictionary containing the loaded content with
+                'content' and 'source' keys.
 
         Raises:
-            ValueError: If the URL is invalid or the request fails.
+            ValueError: If the source is a Path object, not a valid URL string,
+                or if the request fails.
         """
         import requests
+
+        # JinaURLLoader only supports URL strings
+        if isinstance(source, Path):
+            raise ValueError(
+                f"JinaURLLoader only supports URL strings, not file paths. "
+                f"Got Path object: {source}"
+            )
+
+        if not isinstance(source, str):
+            raise ValueError(
+                f"Expected string URL, got {type(source).__name__}: {source}"
+            )
 
         if not source.startswith(('http://', 'https://')):
             raise ValueError(f"Invalid URL: {source}")
@@ -114,34 +130,37 @@ class JinaURLLoader(BaseLoader):
                 **kwargs,
             )
             response.raise_for_status()
-            return {source: response.text}
+            return {"content": response.text, "source": source}
         except Exception as e:
             raise ValueError(
                 f"Failed to read content from {source}: {e}"
             ) from e
 
-    def load(  # type: ignore[override]
+    def load(
         self,
-        source: Union[str, List[str]],
+        source: Union[str, Path, List[Union[str, Path]]],
         **kwargs: Any,
     ) -> Dict[str, List[Dict[str, Any]]]:
         r"""Load content from one or more URLs.
 
         Args:
-            source: A single URL or a list of URLs to load.
-            (default: :obj:`None`)
-            **kwargs: Additional arguments to pass to the request.
-            (default: :obj:`None`)
+            source (Union[str, Path, List[Union[str, Path]]]): A single URL or
+                a list of URLs to load. While Path objects are accepted for
+                compatibility with BaseLoader, only string URLs starting with
+                'http://' or 'https://' are supported.
+            **kwargs (Any): Additional arguments to pass to the request.
 
         Returns:
             Dict[str, List[Dict[str, Any]]]: A dictionary with a single key
-                "contents" containing a list of loaded data. If a single source
-                is provided, the list will contain a single item.
+                "contents" containing a list of loaded data. Each item contains
+                'content' and 'source' keys. If a single source is provided,
+                the list will contain a single item.
 
         Raises:
-            ValueError: If any URL is invalid or the request fails.
+            ValueError: If any source is a Path object, not a valid URL string,
+                or if any request fails.
         """
-        if isinstance(source, str):
+        if isinstance(source, (str, Path)):
             return {"contents": [self._load_single(source, **kwargs)]}
         return {
             "contents": [self._load_single(url, **kwargs) for url in source]
